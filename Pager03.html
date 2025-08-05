@@ -1,0 +1,428 @@
+<!DOCTYPE html>
+<html lang="zh-tw">
+<head>
+    <meta charset="UTF-8">
+    <title>裁切網頁</title>
+    <style>
+        .result-box { border:1px solid #888; margin:5px; padding:5px; }
+        .draw-area { border:1px solid #333; width:600px; height:400px; position:relative; }
+        .box { position:absolute; border:2px solid #0078D7; background:rgba(0,120,215,0.1); }
+        .main-flex {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 24px;
+        align-items: flex-start;
+    }
+    .input-area {
+        min-width: 260px;
+        flex: 1 1 300px;
+        max-width: 800px;
+    }
+    .result-area {
+        flex: 2 1 400px;
+        min-width: 300px;
+    }
+   
+        .row-fields {
+        display: flex;
+        gap: 12px;
+        margin: 12px 0;
+        flex-wrap: wrap;
+    }
+    .row-fields label {
+        display: flex;
+        align-items: center;
+        gap: 4px;
+    }
+    @media (max-width: 600px) {
+        .main-flex {
+            flex-direction: column;
+             gap: 6px;
+        }
+        .input-area, .result-area {
+            max-width: 100%;
+        }
+    }
+  
+    </style>
+</head>
+<body>
+     <div class="main-flex">
+        <div class="input-area">
+            <h2>商品選擇</h2>
+            <select id="productSelect">
+                <option value="">請選擇</option>
+                <option value="有膠紙">就是怕靜電，來張有膠紙</option>
+                <option value="靜電紙">天氣太熱，不想黏踢踢，來張靜電紙</option>
+                <option value="霧面紙">相看兩相厭，眼不見為淨，來張霧面貼</option>
+            </select>
+            <br>
+           <div class="row-fields">
+        <label>寬幅: <input id="width" readonly></label>
+        <label>價格: <input id="price" readonly></label>
+        <label>換算基數: <input id="base" readonly></label>
+    </div>
+            <br><br>
+            <label>進位方式</label>
+            <select id="rounding">
+                <option value="0">四捨五入</option>
+                <option value="1">無條件進位</option>
+                <option value="2">無條件捨去</option>
+            </select>
+            <br>
+            <label>拼接方式</label>
+            <select id="joinType">
+                <option value="置中拼接(直立)">置中拼接(直立)</option>
+                <option value="一般拼接(直立)">一般拼接(直立)</option>
+                <option value="置中拼接(橫向)">置中拼接(橫向)</option>
+                <option value="一般拼(橫向)">一般拼(橫向)</option>
+            </select>
+            <br>
+            <label>需求尺吋</label><br>
+            <textarea id="sizeInput" rows="10" cols="40"></textarea>
+            <br><br>
+            <button onclick="callPaper01()">裁切表</button>
+            <button onclick="callPaper02()">裁切圖</button>
+        </div>
+        <div class="result-area">
+            <h3>裁切表結果 (paper01)</h3>
+            <div id="result01"></div>
+            <h3>裁切圖結果 (paper02)</h3>
+            <div id="result02"></div>
+            <div class="draw-area" id="drawArea"></div>
+        </div>
+    </div>
+   
+    <script>
+        // 商品資料
+        const products = {
+            "有膠紙": { width:152, price:25, base:6 },
+            "靜電紙": { width:150, price:30, base:6 },
+            "霧面紙": { width:120, price:25, base:7.5 }
+        };
+        document.getElementById('productSelect').addEventListener('change', function() {
+            const val = this.value;
+            if(products[val]) {
+                document.getElementById('width').value = products[val].width;
+                document.getElementById('price').value = products[val].price;
+                document.getElementById('base').value = products[val].base;
+            } else {
+                document.getElementById('width').value = '';
+                document.getElementById('price').value = '';
+                document.getElementById('base').value = '';
+            }
+        });
+
+        // 呼叫 Azure Function
+        async function callPaper01() {
+            const payload = collectData();
+            //  let teststring = JSON.stringify(payload);
+            //  console.log(teststring);
+            
+            let resp = await fetch('https://pappercounttest-bbdyeab8ewhbg5c9.eastasia-01.azurewebsites.net/api/GetPaperFunction', {method:'POST', body:JSON.stringify(payload)});
+              let data = await resp.json();//此時已經是物件           
+           
+         
+            //showResult01(data);
+            showResult01test01(data);
+        }
+
+        function showResult01(jsonData) {
+            if (!jsonData || !jsonData.response) {
+                document.getElementById('result01').innerHTML = '<div class="result-box">無資料</div>';
+                return;
+            }
+            
+            let html = '';
+            jsonData.response.forEach(d=>{
+                html += `<div class="result-box">名稱:${d.LabelName} 面積:${d.Squ1} 才數:${d.Squ2} 金額:${d.Amt}</div>`;
+            });
+            document.getElementById('result01').innerHTML = html;
+        }
+
+        function showResult01test01(jsonData) {
+    if (!jsonData || !jsonData.response || jsonData.response.length === 0) {
+        document.getElementById('result01').innerHTML = '<div class="result-box">無資料</div>';
+        return;
+    }
+
+    let totalSqu1 = 0;
+    let totalSqu2 = 0;
+    let totalAmt = 0;
+
+    // 開始建表格 HTML
+    let html = '<table border="1" cellpadding="5" cellspacing="0">';
+    html += '<thead><tr><th>名稱</th><th>面積</th><th>才數</th><th>金額</th></tr></thead>';
+    html += '<tbody>';
+
+    // 加總 & 明細列
+    jsonData.response.forEach(d => {
+        const squ1 = parseFloat(d.Squ1) || 0;
+        const squ2 = parseFloat(d.Squ2) || 0;
+        const amt = parseFloat(d.Amt) || 0;
+
+        totalSqu1 += squ1;
+        totalSqu2 += squ2;
+        totalAmt += amt;
+
+        html += `<tr>
+                    <td>${d.LabelName}</td>
+                    <td>${squ1}</td>
+                    <td>${squ2}</td>
+                    <td>${amt}</td>
+                </tr>`;
+    });
+
+    // 總計列
+    html = html.replace(
+        '<tbody>',
+        `<tbody>
+            <tr style="font-weight:bold; background-color:#f0f0f0;">
+                <td>總計</td>
+                <td>${totalSqu1}</td>
+                <td>${totalSqu2}</td>
+                <td>${totalAmt}</td>
+            </tr>`
+    );
+
+    html += '</tbody></table>';
+
+    document.getElementById('result01').innerHTML = html;
+}
+
+        async function callPaper02() {
+            const payload = collectData();
+            
+            let resp = await fetch('https://pappercounttest-bbdyeab8ewhbg5c9.eastasia-01.azurewebsites.net/api/PaperImgFunction', {method:'POST', body:JSON.stringify(payload)});
+             let data = await resp.json();
+            //console.log(data);
+
+             let tempString =`{"response":[
+{"Label":"49*110","X":0,"Y":0,"Width":49,"Height":110,"SheetIndex":1}
+,{"Label":"49*110","X":49,"Y":0,"Width":49,"Height":110,"SheetIndex":2}
+,{"Label":"50*80","X":98,"Y":0,"Width":50,"Height":80,"SheetIndex":3}
+,{"Label":"53*31","X":98,"Y":80,"Width":53,"Height":31,"SheetIndex":4}
+,{"Label":"50*80","X":0,"Y":111,"Width":50,"Height":80,"SheetIndex":5}
+,{"Label":"50*80","X":50,"Y":111,"Width":50,"Height":80,"SheetIndex":6}
+,{"Label":"50*80","X":100,"Y":111,"Width":50,"Height":80,"SheetIndex":7}
+,{"Label":"67*62","X":0,"Y":191,"Width":67,"Height":62,"SheetIndex":8}
+,{"Label":"67*62","X":67,"Y":191,"Width":67,"Height":62,"SheetIndex":9}
+,{"Label":"67*62","X":0,"Y":253,"Width":67,"Height":62,"SheetIndex":10}
+,{"Label":"67*62","X":67,"Y":253,"Width":67,"Height":62,"SheetIndex":11}
+,{"Label":"67*62","X":0,"Y":315,"Width":67,"Height":62,"SheetIndex":12}
+,{"Label":"67*62","X":67,"Y":315,"Width":67,"Height":62,"SheetIndex":12}
+,{"Label":"67*62","X":0,"Y":377,"Width":67,"Height":62,"SheetIndex":14}
+,{"Label":"67*62","X":67,"Y":377,"Width":67,"Height":62,"SheetIndex":15}
+,{"Label":"63.5*62","X":0,"Y":439,"Width":63.5,"Height":62,"SheetIndex":6}
+,{"Label":"63.5*62","X":63.5,"Y":439,"Width":63.5,"Height":62,"SheetIndex":17}
+,{"Label":"63.5*62","X":0,"Y":501,"Width":63.5,"Height":62,"SheetIndex":18}
+,{"Label":"63.5*62","X":63.5,"Y":501,"Width":63.5,"Height":62,"SheetIndex":19}
+,{"Label":"63.5*62","X":0,"Y":563,"Width":63.5,"Height":62,"SheetIndex":20}
+,{"Label":"63.5*62","X":63.5,"Y":563,"Width":63.5,"Height":62,"SheetIndex":21}
+,{"Label":"53*31","X":0,"Y":625,"Width":53,"Height":31,"SheetIndex":22}
+,{"Label":"53*31","X":53,"Y":625,"Width":53,"Height":31,"SheetIndex":23}
+,{"Label":"43.5*30","X":106,"Y":625,"Width":43.5,"Height":30,"SheetIndex":24}
+,{"Label":"53*31","X":0,"Y":656,"Width":53,"Height":31,"SheetIndex":25}
+,{"Label":"53*31","X":53,"Y":656,"Width":53,"Height":31,"SheetIndex":26}
+,{"Label":"43.5*30","X":106,"Y":656,"Width":43.5,"Height":30,"SheetIndex":27}
+,{"Label":"53*31","X":0,"Y":687,"Width":53,"Height":31,"SheetIndex":28}
+,{"Label":"53*31","X":53,"Y":687,"Width":53,"Height":31,"SheetIndex":29}
+,{"Label":"43.5*30","X":106,"Y":687,"Width":43.5,"Height":30,"SheetIndex":30}
+,{"Label":"53*31","X":0,"Y":718,"Width":53,"Height":31,"SheetIndex":31}
+,{"Label":"53*31","X":53,"Y":718,"Width":53,"Height":31,"SheetIndex":32}
+,{"Label":"43.5*30","X":106,"Y":718,"Width":43.5,"Height":30,"SheetIndex":33}
+,{"Label":"53*31","X":0,"Y":749,"Width":53,"Height":31,"SheetIndex":34}
+,{"Label":"53*31","X":53,"Y":749,"Width":53,"Height":31,"SheetIndex":35}
+,{"Label":"43.5*30","X":106,"Y":749,"Width":43.5,"Height":30,"SheetIndex":36}
+,{"Label":"53*31","X":0,"Y":780,"Width":53,"Height":31,"SheetIndex":37}
+,{"Label":"43.5*30","X":53,"Y":780,"Width":43.5,"Height":30,"SheetIndex":38}
+,{"Label":"43.5*30","X":96.5,"Y":780,"Width":43.5,"Height":30,"SheetIndex":39}
+,{"Label":"30*43.5","X":0,"Y":811,"Width":30,"Height":43.5,"SheetIndex":40}
+,{"Label":"30*43.5","X":30,"Y":811,"Width":30,"Height":43.5,"SheetIndex":41}
+,{"Label":"30*43.5","X":60,"Y":811,"Width":30,"Height":43.5,"SheetIndex":42}
+,{"Label":"30*43.5","X":90,"Y":811,"Width":30,"Height":43.5,"SheetIndex":43}
+,{"Label":"30*43.5","X":120,"Y":811,"Width":30,"Height":43.5,"SheetIndex":44}
+]}`;
+            //let data = JSON.parse(tempString);
+            //showResult02(data);
+            drawBoxes(data);
+        }
+        function showResult02(data) {
+            
+            if (!data || !data.response || data.response.length === 0) {
+                document.getElementById('result02').innerHTML = '<div class="result-box">無資料</div>';
+                return;
+            }
+            
+            let html = '';
+            data.response.forEach(d=>{
+                html += `<div class="result-box">名稱:${d.Label} x:${d.X} y:${d.Y} w:${d.Width} h:${d.Height}</div>`;
+            });
+            document.getElementById('result02').innerHTML = html;
+        }
+        function drawBoxestest01(data) {
+            
+            const area = document.getElementById('drawArea');
+            area.innerHTML = '';
+            data.response.forEach(d=>{
+                let box = document.createElement('div');
+                box.className = 'box';
+                box.style.left = d.X + 'px';
+                box.style.top = d.Y + 'px';
+                box.style.width = d.Width + 'px';
+                box.style.height = d.Height + 'px';
+                box.title = d.Label;
+                area.appendChild(box);
+            });
+        }
+
+        function drawBoxes(data) {
+            const scale = 2; // 放大倍數
+            const leftSpace = 50; // 左側空間
+
+    const area = document.getElementById('drawArea');
+    area.innerHTML = '';
+
+    let totalLength = 0;
+let groupMaxHeight = 0; // 每組的最大高度
+ let gg=0;//測試計算
+    data.response.forEach(d => {
+        // 建立每個區塊
+        let box = document.createElement('div');
+        box.className = 'box';
+        box.style.position = 'absolute';
+        box.style.left = (d.X * scale)+leftSpace + 'px';
+    box.style.top = (d.Y * scale) + 'px';
+    box.style.width = (d.Width * scale) + 'px';
+    box.style.height = (d.Height * scale) + 'px';
+        box.title = d.Label;
+        box.style.border = '1px solid blue';
+        box.style.boxSizing = 'border-box';
+box.style.display = 'flex';
+//box.style.alignItems = 'center';
+//box.style.justifyContent = 'center';
+
+        // 顯示 Width x Height
+        const label = document.createElement('div');
+        label.style.position = 'absolute';
+       
+        label.style.top = Math.round((d.Height/2),0)*scale-6 + 'px';
+        label.style.left = '2px';
+        label.style.backgroundColor = 'rgba(255,255,255,0.7)';
+        if(d.Width*scale <40) {
+            label.style.fontSize = '10px'; // 寬度小於40時字體小一點
+        } else {
+            label.style.fontSize = '14px'; // 否則使用正常字體大小
+        }
+       
+        //label.style.padding = '2px 4px';
+        label.textContent = `${d.Label}`;
+        box.appendChild(label);
+        area.appendChild(box);
+        
+
+        totalLength = Math.max(d.Y+d.Height, totalLength); // 更新總長度
+        if(d.X==0 || d.SheetIndex== data.response.length) {
+             //最後一組畫錯
+            if( d.SheetIndex>1) {
+                // 前一個群組的高度 -- 劃出線段
+                //console.log(`totalLength=${totalLength}; groupMaxHeight=${groupMaxHeight} d.Y=${d.Y} d.Height=${d.Height}`);
+                //console.log(`目前: index:${d.SheetIndex}:前一個群組最大高度: ${groupMaxHeight}, Y=${d.Y}Top=${groupMaxHeight*scale}px`);
+                let boxHeight = document.createElement('div');
+                boxHeight.style.position = 'absolute';
+                boxHeight.style.right = '5px';
+                boxHeight.style.top =  `${groupMaxHeight*scale}px`;
+                boxHeight.style.width = '2px';
+                 if(d.SheetIndex == data.response.length) {
+                    boxHeight.style.height = `${(totalLength - groupMaxHeight -2) * scale}px`;
+                } else {
+                    boxHeight.style.height = `${(d.Y-groupMaxHeight -2) * scale}px`;
+                }
+                boxHeight.style.backgroundColor = 'darkgray';
+                boxHeight.style.pointerEvents = 'none'; // 不阻擋事件
+                //console.log(`label.Top:=> ${(d.Y - Math.round(  (d.Y-groupMaxHeight)/2,0)) * scale}px`);
+                let labelHeight = document.createElement('div');
+                labelHeight.style.position = 'absolute';
+                labelHeight.style.right = '2px';
+                
+                labelHeight.style.fontSize = '14px';
+                labelHeight.style.zIndex = '1000'; // 放上層
+                //labelHeight.style.backgroundColor = 'red'; // 若需要背景遮擋
+                //最後一組 -- 資料會不一樣
+                if(d.SheetIndex == data.response.length) {
+                    labelHeight.style.top =  `${(totalLength- Math.round( (totalLength-groupMaxHeight)/2,0)) * scale}px`;
+                     labelHeight.textContent = `${(totalLength-groupMaxHeight)} cm`;
+                } else {
+                    labelHeight.style.top =  `${(d.Y - Math.round( (d.Y-groupMaxHeight)/2,0)) * scale}px`;
+                     labelHeight.textContent = `${(d.Y-groupMaxHeight)} cm`;
+                }
+               
+                area.appendChild(boxHeight);
+                area.appendChild(labelHeight);
+              
+            }
+            //console.log(`目前index: ${d.SheetIndex} reset ${groupMaxHeight}=>${d.Y} cm`);
+             groupMaxHeight=d.Y; // 重置每組最大高度
+            
+        }
+    });
+    
+
+    area.style.height = Math.max(totalLength*scale + 50, area.offsetHeight) + 'px'; // 確保區域足夠顯示所有內容
+    console.log(`總長度: ${Math.max(totalLength*scale + 50, area.offsetHeight)} px`);
+      // 畫直線與標示（先畫一次就好）
+    const guideLine = document.createElement('div');
+    guideLine.style.position = 'absolute';
+    guideLine.style.left = `${leftSpace}px`;
+    guideLine.style.top = '0px';
+    guideLine.style.width = '2px';
+    guideLine.style.height = `${totalLength*scale }px`;
+    guideLine.style.backgroundColor = 'black';
+    guideLine.style.pointerEvents = 'none'; // 不阻擋事件
+    area.appendChild(guideLine);
+
+    // 加入每 100 公分的標示
+    for (let y = 100*scale; y < totalLength*scale; y += (100*scale)) {
+        //console.log(`標示位置: ${y}`);
+        const label = document.createElement('div');
+label.style.position = 'absolute';
+label.style.left = '5px';
+label.style.top = `${y-6}px`;
+label.style.fontSize = '14px';
+label.style.zIndex = '1000'; // 放上層
+label.style.backgroundColor = 'white'; // 若需要背景遮擋
+label.textContent = `${y/scale} cm`;
+area.appendChild(label);
+    }
+    
+    // 顯示總長度
+    const totalLabel = document.createElement('div');
+    totalLabel.style.position = 'absolute';
+    totalLabel.style.left = '10px';
+    totalLabel.style.top = `${totalLength*scale +10}px`;
+    totalLabel.style.fontSize = '16px';
+    totalLabel.style.fontWeight = 'bold';
+    //totalLabel.style.backgroundColor = 'rgba(255,255,0,0.8)';
+    totalLabel.style.padding = '5px';
+    totalLabel.textContent = `總長度: ${totalLength} cm`;
+    area.appendChild(totalLabel);
+}
+
+       
+       
+       
+       
+        function collectData() {
+            return {
+                ProdName: document.getElementById('productSelect').value,
+                ProdWidth: document.getElementById('width').value,
+                Price: document.getElementById('price').value,
+                SquBase: document.getElementById('base').value,
+                RoundInt: document.getElementById('rounding').value,
+                Splicing: document.getElementById('joinType').value,
+                CutString: document.getElementById('sizeInput').value
+            };
+        }
+    </script>
+</body>
+</html>
